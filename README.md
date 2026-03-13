@@ -8,7 +8,8 @@ Our pipeline is entirely self-contained within a single Python script (`run_pipe
 ## Overview of Implementation
 To accommodate severe computational constraints while fulfilling rigorous reproducibility standards, our codebase is unified into a single executable script. By default, the script executes our **Full-Scale Swahili Reproduction** (80,000 samples) and a custom Layer-Swapping ablation study.
 
-**🚨 Compute Requirements Warning 🚨** > Executing the default script (which runs the Full-Scale Swahili reproduction and the 50/50 layer ablation) takes approximately **50 hours on a single NVIDIA A100 GPU**. 
+**🚨 Compute Requirements Warning 🚨**
+Executing the default script (which runs the Full-Scale Swahili reproduction and the 50/50 layer ablation) takes approximately **50 hours on a single NVIDIA A100 GPU**. 
 
 The code to execute the Bengali and Telugu pipelines is fully implemented but commented out by default. If an evaluator uncomments these lines to run the end-to-end pipeline across all three languages, total compute time will exceed **65 hours**. The script will begin training immediately upon execution, but we do not recommend running it to completion.
 
