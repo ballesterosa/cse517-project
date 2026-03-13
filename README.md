@@ -1,7 +1,7 @@
 # Reproducibility Project: Modular Cross-Lingual Transfer in LLMs
 **Team:** Saan Popović, Mariana Shuman, and Antonio Ballesteros
 
-This repository contains the code for reproducing the experiments from the paper *"The Unreasonable Effectiveness of Model Merging for Cross-Lingual Transfer in LLMs"* (Bandarkar & Peng, 2025) for CSE 517. 
+This repository contains the code for reproducing the experiments from the paper *"The Unreasonable Effectiveness of Model Merging for Cross-Lingual Transfer in LLMs"* (Bandarkar & Peng, 2025) for CSE 517. [https://aclanthology.org/2025.mrl-main.10/]
 
 Our pipeline is entirely self-contained within a single Python script (`run_pipeline.py`) and is engineered with fault-tolerance to run on a single NVIDIA A100 GPU.
 
@@ -29,3 +29,26 @@ This code was developed and tested on an A100 GPU environment. To install and ru
 git clone <your-github-repo-url>
 cd <your-repo-name>
 pip install torch transformers peft datasets trl bitsandbytes accelerate safetensors tqdm matplotlib numpy
+```
+
+### 2. Data Download Instructions
+No manual data downloading is required. All evaluation datasets (MGSM) and SFT datasets are fetched programmatically via the HuggingFace datasets library at runtime. The script automatically handles caching to local directories to prevent redundant API calls.
+
+### 3. Preprocessing Code & Commands
+Preprocessing, tokenization (ChatML format), and dynamic left-padding for batched evaluation are handled natively within the training scripts. No separate preprocessing commands are needed.
+
+### 4. Training Code & Commands
+To execute the end-to-end training pipelines (Math Expert, Language Expert, Data-Mixing, Simultaneous SFT, and Layer-Swapping), run the script directly from the bash terminal.
+
+```bash
+python run_pipeline.py
+```
+Note: To evaluate Bengali or Telugu, uncomment the respective lines in the language_configs list inside the main execution block of the script.
+
+### 5. Evaluation Code & Commands
+Evaluation is performed automatically at the end of the training script. It utilizes a highly optimized, fast-batched (Batch Size = 8) 2-shot Chain-of-Thought (CoT) inference loop to drastically reduce evaluation time.
+
+Results are incrementally saved to a local smart_reproduction_results.json file, and a publication-ready .png chart is generated automatically upon completion.
+
+### 6. Pretrained Model
+We utilize the Qwen 2.5 (7B) base model (Qwen/Qwen2.5-7B-Instruct), loaded dynamically from HuggingFace in 4-bit quantization using BitsAndBytes.
