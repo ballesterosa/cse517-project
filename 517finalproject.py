@@ -22,7 +22,9 @@ from peft import LoraConfig, PeftModel, get_peft_model, prepare_model_for_kbit_t
 from trl import SFTTrainer, SFTConfig
 from transformers.trainer_utils import get_last_checkpoint
 
-# Local saving
+# ENVIRONMENT SETUP & PATHING
+# Local saving directory for model weights, datasets, and final results.
+# The script is fully fault-tolerant and will safely resume progress from this directory.
 BASE_DIR = "./CSE517_Reproduction"
 os.makedirs(BASE_DIR, exist_ok=True)
 print(f"Results will save to local directory: {BASE_DIR}")
@@ -72,13 +74,6 @@ def get_base_model():
     )
 
 
-# # DRY RUN SETTINGS (Commented out for full reproduction, but useful for quick iterations during development)
-# LIMIT = 100000
-# DRY_RUN_STEPS = 5
-# DEBUG = True
-# CONFIG["num_train_epochs"] = 1
-# CONFIG["warmup_steps"] = 1
-
 """Load Data:"""
 # PAPER REQUIREMENT: "Datasets are controlled at 80k samples"
 TARGET_LIMIT = 80000
@@ -93,10 +88,10 @@ def to_chatml(u, a):
     }
 
 
-# Helper to Save/Load from Cache (Avoids re-processing every run, which is critical for the large language datasets)
+# Helper to Save/Load from Cache (Avoids re-processing every run)
 def get_or_create_dataset(name, filepath, creator_fn):
     if os.path.exists(filepath):
-        print(f"Loading {name} from Drive cache...")
+        print(f"Loading {name} from cache at {filepath}...")
         return load_from_disk(filepath)
     print(f"Creating {name} from scratch...")
     ds = creator_fn()
@@ -108,11 +103,10 @@ def get_or_create_dataset(name, filepath, creator_fn):
 def create_math():
     print("Loading Math Dataset...")
     math_raw = load_dataset("microsoft/orca-math-word-problems-200k", split="train")
-    # Clean and Format
     math_fmt = math_raw.map(
         lambda x: to_chatml(x["question"], x["answer"]),
         remove_columns=math_raw.column_names,
-        num_proc=4,  # Speed up formatting
+        num_proc=4,
     )
     return math_fmt.shuffle(seed=42).select(range(TARGET_LIMIT))
 
@@ -132,7 +126,6 @@ def stream_and_mix(name, streams, limit):
                 try:
                     row = next(it)
                     u, a = None, None
-                    # Paper-compliant key normalization
                     if "inputs" in row:
                         u, a = row["inputs"], row["targets"]
                     elif "instruction" in row:
@@ -154,7 +147,6 @@ def stream_and_mix(name, streams, limit):
 
 
 # Language Experts:
-# Swahili
 def create_sw():
     streams = [
         load_dataset(
@@ -174,7 +166,6 @@ sw_expert_train = get_or_create_dataset(
 )
 
 
-# Bengali
 def create_bn():
     streams = [
         load_dataset(
@@ -196,7 +187,6 @@ bn_expert_train = get_or_create_dataset(
 )
 
 
-# Telugu
 def create_te():
     streams = [
         load_dataset(
@@ -233,19 +223,14 @@ print(f"Production Data Ready. Mixed Dataset Size: {len(mixed_dataset)}")
 
 
 print("Verification: config & tokenizer")
-
-# Verify Config matches Paper
 assert CONFIG["model_name"] == "Qwen/Qwen2.5-7B-Instruct"
 assert CONFIG["r"] == 64
 assert CONFIG["alpha"] == 16
 print("Configuration checks passed.")
 
-# Verify Tokenizer loads correctly
 tokenizer = AutoTokenizer.from_pretrained(CONFIG["model_name"])
 tokenizer.pad_token = tokenizer.eos_token
 print(f" Tokenizer loaded: {tokenizer.name_or_path}")
-print(f"   Pad Token: {tokenizer.pad_token}")
-print(f"   EOS Token: {tokenizer.eos_token}")
 
 
 """Expert Training Functions:"""
@@ -298,7 +283,6 @@ def train_expert(dataset, output_dir, run_name):
         args=training_args,
     )
 
-    # Resume if a checkpoint exists
     last_checkpoint = (
         get_last_checkpoint(output_dir) if os.path.isdir(output_dir) else None
     )
@@ -408,7 +392,6 @@ def merge_layer_swapping(math_adapter_path, lang_adapter_path, output_dir):
         os.path.join(lang_adapter_path, "adapter_model.safetensors")
     )
 
-    # Detect Total Layers
     layer_indices = [
         int(re.search(r"\.layers\.(\d+)\.", k).group(1))
         for k in math_tensors.keys()
@@ -416,8 +399,6 @@ def merge_layer_swapping(math_adapter_path, lang_adapter_path, output_dir):
     ]
     num_layers = max(layer_indices) + 1
 
-    # Align with Partition [C] used in Cell 3 (Simultaneous Training)
-    # Paper Section 3.3: "First six and last two transformer layers allocated to language"
     lang_indices = set(list(range(0, 6)) + list(range(num_layers - 2, num_layers)))
 
     merged = {}
@@ -426,15 +407,13 @@ def merge_layer_swapping(math_adapter_path, lang_adapter_path, output_dir):
         if layer_match:
             idx = int(layer_match.group(1))
             if idx in lang_indices:
-                merged[k] = lang_tensors[k]  # Use Language Weights (Top/Bottom)
+                merged[k] = lang_tensors[k]
             else:
-                merged[k] = math_tensors[k]  # Use Math Weights (Middle)
+                merged[k] = math_tensors[k]
         else:
-            merged[k] = math_tensors[k]  # Default to Math for non-layer params
+            merged[k] = math_tensors[k]
 
     save_file(merged, os.path.join(output_dir, "adapter_model.safetensors"))
-
-    # Copy config
     shutil.copy(
         os.path.join(math_adapter_path, "adapter_config.json"),
         os.path.join(output_dir, "adapter_config.json"),
@@ -443,34 +422,21 @@ def merge_layer_swapping(math_adapter_path, lang_adapter_path, output_dir):
 
 
 """Math-Only"""
-# Config for this specific run
 math_output_dir = f"{BASE_DIR}/math_expert_lora"
 math_run_name = "Math-Only Expert"
-
-# Check for the completed weights file, not just the folder
 final_math_file = os.path.join(math_output_dir, "adapter_model.safetensors")
 
 if not os.path.exists(final_math_file):
     print(f"Starting Training for {math_run_name}...")
-    print(f"Dataset Size: {len(math_dataset)}")
-
-    # Clear VRAM before starting
     clean_memory()
-
     train_expert(
         dataset=math_dataset, output_dir=math_output_dir, run_name=math_run_name
     )
 else:
-    print(
-        f"{math_run_name} is already 100% complete at {math_output_dir}. Skipping training."
-    )
+    print(f"{math_run_name} is already complete at {math_output_dir}. Skipping.")
 
-print("Math Expert training cell complete!")
 
 """Language-Only"""
-
-# Experts to train:
-# We use the specific language datasets prepared in Cell 2
 language_experts = [
     {
         "dataset": sw_expert_train,
@@ -490,18 +456,11 @@ language_experts = [
 ]
 
 print("Starting Language Expert Training (Safe Mode)")
-
 for expert in language_experts:
     final_model_file = os.path.join(expert["path"], "adapter_model.safetensors")
-
     if not os.path.exists(final_model_file):
         print(f"\n>>> Preparing to train: {expert['name']}")
-
-        # Aggressive memory cleanup before each run
-        gc.collect()
-        torch.cuda.empty_cache()
-        torch.cuda.synchronize()
-
+        clean_memory()
         train_expert(
             dataset=expert["dataset"],
             output_dir=expert["path"],
@@ -509,12 +468,8 @@ for expert in language_experts:
         )
     else:
         print(
-            f"\n>>>{expert['name']} is already 100% complete at {expert['path']}. Skipping."
+            f"\n>>>{expert['name']} is already complete at {expert['path']}. Skipping."
         )
-
-print("\n" + "=" * 30)
-print("SUCCESS: All Language Experts Trained.")
-print("=" * 30)
 
 
 """Results and Tables"""
@@ -523,7 +478,6 @@ print("=" * 30)
 def evaluate_model(model, tokenizer, languages, batch_size=8):
     results = {}
 
-    # 2-Shot Chain-of-Thought Prompt (Paper Section 3.1)
     def prompt_fn(q):
         return f"""<|im_start|>user
 Question: There are 15 trees in the grove. Grove workers will plant trees in the grove today. After they are done, there will be 21 trees. How many trees did the grove workers plant today?
@@ -542,7 +496,6 @@ Answer: <|im_end|>
 """
 
     model.eval()
-    # Left-padding is required for batched inference
     tokenizer.padding_side = "left"
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
@@ -551,7 +504,6 @@ Answer: <|im_end|>
 
     for lang in languages:
         try:
-            # Load MGSM Test Set (250 samples)
             ds = load_dataset("juletxara/mgsm", lang, split="test")
         except Exception as e:
             print(f"Failed to load {lang}: {e}")
@@ -575,14 +527,12 @@ Answer: <|im_end|>
                     attention_mask=inputs.attention_mask,
                     max_new_tokens=256,
                     pad_token_id=tokenizer.pad_token_id,
-                    temperature=0.0,  # Deterministic (Greedy)
+                    temperature=0.0,
                     do_sample=False,
                 )
 
             for j, generated_tokens in enumerate(out):
                 text = tokenizer.decode(generated_tokens, skip_special_tokens=True)
-
-                # Robust Parsing
                 parts = text.split("assistant")
                 response_text = parts[-1].replace(",", "")
                 numbers = re.findall(r"-?\d+(?:\.\d+)?", response_text)
@@ -607,12 +557,9 @@ Answer: <|im_end|>
 if __name__ == "__main__":
     print("Beginning Reproduction...")
 
-    # Learning Rate
-    # Paper Appx A.4: "For LoRA, it ranged from [4.0,9.0] x 10^-6"
     CONFIG["lr"] = 5e-6
     print(f"Updated Learning Rate to {CONFIG['lr']} for Paper Compliance")
 
-    # Fault Tolerance: Check for existing results JSON to resume progress if interrupted
     json_path = f"{BASE_DIR}/smart_reproduction_results.json"
     if os.path.exists(json_path):
         print("Found existing results JSON. Resuming progress...")
@@ -628,14 +575,11 @@ if __name__ == "__main__":
     qwen_base_dir = f"{BASE_DIR}/results/qwen2.5"
     os.makedirs(qwen_base_dir, exist_ok=True)
 
-    # Train the Universal Math Expert Once
-    math_expert_dir = f"{qwen_base_dir}/math_expert"
+    # Route to the isolated persistent math expert directory to support fault tolerance
+    math_expert_dir = f"{BASE_DIR}/math_expert_lora"
     train_expert(math_dataset, math_expert_dir, "Qwen Math-Only")
 
-    # NOTE FOR EVALUATOR: We built the pipeline for Swahili, Bengali, and Telugu.
-    # However, as detailed in our report's Compute Ablation section, each language
-    # takes ~22 hours on an A100. We have commented out Bengali and Telugu by default
-    # to prevent this script from exceeding standard evaluation time limits.
+    # NOTE FOR EVALUATOR: Bengali and Telugu are commented out due to runtime constraints
     language_configs = [
         ("sw", "Swahili", sw_expert_train),
         # ("bn", "Bengali", bn_expert_train),
@@ -654,19 +598,25 @@ if __name__ == "__main__":
             interleave_datasets([math_dataset, lang_ds]).shuffle(seed=42).take(160000)
         )
 
-        # Training Paths
-        lang_expert_dir = f"{lang_dir}/lang_expert"
+        # Dynamic routing to ensure fault-tolerance matches the isolated cell outputs
+        if lang_code == "sw":
+            lang_expert_dir = f"{BASE_DIR}/lang_expert_swahili_lora"
+        elif lang_code == "bn":
+            lang_expert_dir = f"{BASE_DIR}/lang_expert_bengali_lora"
+        elif lang_code == "te":
+            lang_expert_dir = f"{BASE_DIR}/lang_expert_telugu_lora"
+        else:
+            lang_expert_dir = f"{lang_dir}/lang_expert"
+
         data_mixing_dir = f"{lang_dir}/data_mixing"
         simultaneous_dir = f"{lang_dir}/simultaneous"
         layer_swapping_dir = f"{lang_dir}/layer_swapping"
 
-        # Train Baselines & Experts
         train_expert(lang_ds, lang_expert_dir, f"Qwen {lang_name}-Only")
         train_expert(mixed_ds, data_mixing_dir, f"Qwen Data-Mixing ({lang_name})")
         train_simultaneous(math_dataset, lang_ds, simultaneous_dir)
         merge_layer_swapping(math_expert_dir, lang_expert_dir, layer_swapping_dir)
 
-        # Evaluation paths for this language
         eval_paths = {
             "Base Model": None,
             "Math-Only": math_expert_dir,
@@ -676,9 +626,7 @@ if __name__ == "__main__":
             "Layer-Swapping": layer_swapping_dir,
         }
 
-        # Evaluate and store results incrementally
         for model_name, path in eval_paths.items():
-            # Fault Tolerance Check: Skip if this model/language combo already has a score in the JSON
             if model_name in final_results.get(
                 "Qwen2.5", {}
             ) and lang_code.upper() in final_results["Qwen2.5"].get(model_name, {}):
@@ -691,7 +639,6 @@ if __name__ == "__main__":
             base = get_base_model()
             model = PeftModel.from_pretrained(base, path) if path else base
 
-            # Pass only English and the specific language for this loop
             scores = evaluate_model(model, tokenizer, languages=["en", lang_code])
 
             if model_name not in final_results["Qwen2.5"]:
@@ -702,7 +649,6 @@ if __name__ == "__main__":
             )
             final_results["Qwen2.5"][model_name]["EN"] = scores.get("en", 0.0)
 
-            # Fault tolerance checkpoint after each model evaluation
             with open(json_path, "w") as f:
                 json.dump(final_results, f, indent=4)
             print(f"Progress safely saved to {json_path}")
@@ -710,7 +656,6 @@ if __name__ == "__main__":
             del model, base
             clean_memory()
 
-    # Calculate Average across target languages
     for model_name in final_results["Qwen2.5"]:
         scores = final_results["Qwen2.5"][model_name]
         avg_score = (
@@ -718,16 +663,13 @@ if __name__ == "__main__":
         ) / 3
         final_results["Qwen2.5"][model_name]["AVG"] = avg_score
 
-    # Re-save with averages
     with open(json_path, "w") as f:
         json.dump(final_results, f, indent=4)
 
-    # Final Reporting Table
     print("\n" + "=" * 85)
     print("Reproduction complete! Summary:")
     print("=" * 85)
 
-    print("\n>>> QWEN 2.5 RESULTS (Full Reproduction)")
     columns = [
         "Base Model",
         "Data-Mixing",
@@ -755,12 +697,10 @@ if __name__ == "__main__":
             row_str += f"{score:<14.1f} | "
         print(row_str)
 
-    print("\nReproduction complete! All languages processed.")
 
 """Additional Visualizations"""
 
 
-# 50/50 Ablation merge function
 def merge_layer_swapping_5050(math_adapter_path, lang_adapter_path, output_dir):
     final_model_path = os.path.join(output_dir, "adapter_model.safetensors")
     if os.path.exists(final_model_path):
@@ -802,13 +742,11 @@ def merge_layer_swapping_5050(math_adapter_path, lang_adapter_path, output_dir):
     print("50/50 Merge Complete.")
 
 
-# Visualization function
 def generate_results_chart(json_path):
     with open(json_path, "r") as f:
         data = json.load(f).get("Qwen2.5", {})
 
     languages = ["SW", "BN", "TE"]
-    # Models to plot (Excludes the single-experts so the graph doesn't get too cluttered)
     models = [
         "Base Model",
         "Data-Mixing",
@@ -817,7 +755,6 @@ def generate_results_chart(json_path):
         "Layer-Swapping (50/50)",
     ]
 
-    # Extract scores, default to 0 if not found
     scores = {
         model: [data.get(model, {}).get(lang, 0) for lang in languages]
         for model in models
@@ -851,12 +788,11 @@ def generate_results_chart(json_path):
 # EXECUTION SCRIPT
 print("Starting bonus ablation & visualization...")
 
-# Setup paths
 json_path = f"{BASE_DIR}/smart_reproduction_results.json"
 qwen_base_dir = f"{BASE_DIR}/results/qwen2.5"
-math_expert_dir = f"{qwen_base_dir}/math_expert"
+# Route to the standalone math expert directory
+math_expert_dir = f"{BASE_DIR}/math_expert_lora"
 
-# Load JSON
 if os.path.exists(json_path):
     with open(json_path, "r") as f:
         final_results = json.load(f)
@@ -866,11 +802,9 @@ else:
     )
     final_results = {"Qwen2.5": {}}
 
-# Ensure tokenizer is loaded for evaluation
 tokenizer = AutoTokenizer.from_pretrained(CONFIG["model_name"])
 tokenizer.pad_token = tokenizer.eos_token
 
-# Loop through the languages to merge and evaluate the 50/50 model
 languages = [
     ("sw", "Swahili"),
     # ("bn", "Bengali"),
@@ -879,11 +813,19 @@ languages = [
 
 for lang_code, lang_name in languages:
     lang_dir = f"{qwen_base_dir}/{lang_name.lower()}"
-    lang_expert_dir = f"{lang_dir}/lang_expert"
     layer_swapping_5050_dir = f"{lang_dir}/layer_swapping_5050"
     model_name = "Layer-Swapping (50/50)"
 
-    # Merge
+    # Dynamic routing to the standalone language expert directories
+    if lang_code == "sw":
+        lang_expert_dir = f"{BASE_DIR}/lang_expert_swahili_lora"
+    elif lang_code == "bn":
+        lang_expert_dir = f"{BASE_DIR}/lang_expert_bengali_lora"
+    elif lang_code == "te":
+        lang_expert_dir = f"{BASE_DIR}/lang_expert_telugu_lora"
+    else:
+        lang_expert_dir = f"{lang_dir}/lang_expert"
+
     if os.path.exists(math_expert_dir) and os.path.exists(lang_expert_dir):
         merge_layer_swapping_5050(
             math_expert_dir, lang_expert_dir, layer_swapping_5050_dir
@@ -892,7 +834,6 @@ for lang_code, lang_name in languages:
         print(f"Skipping 50/50 merge for {lang_name}: Expert models not found.")
         continue
 
-    # Evaluate (Fault Tolerant)
     if model_name in final_results.get(
         "Qwen2.5", {}
     ) and lang_code.upper() in final_results["Qwen2.5"].get(model_name, {}):
@@ -912,13 +853,11 @@ for lang_code, lang_name in languages:
         )
         final_results["Qwen2.5"][model_name]["EN"] = scores.get("en", 0.0)
 
-        # Save immediately to prevent data loss
         with open(json_path, "w") as f:
             json.dump(final_results, f, indent=4)
 
         del model, base
         clean_memory()
 
-# Generate the final chart
 generate_results_chart(json_path)
-print("ALL DONE! Check your local directory for the mgsm_results_chart.png file.")
+print("ALL DONE! Check your directory for the mgsm_results_chart.png file.")
