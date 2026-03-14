@@ -21,16 +21,14 @@ from peft import LoraConfig, PeftModel, get_peft_model, prepare_model_for_kbit_t
 from trl import SFTTrainer, SFTConfig
 from transformers.trainer_utils import get_last_checkpoint
 
-# ==========================================
-# 1. ENVIRONMENT SETUP & PATHING
-# ==========================================
+# Environment & Paths
 BASE_DIR = "./CSE517_Reproduction"
 os.makedirs(BASE_DIR, exist_ok=True)
 print(f"Results will save to local directory: {BASE_DIR}")
 
 CONFIG = {
     "model_name": "Qwen/Qwen2.5-7B-Instruct",
-    "lr": 5e-6,  # Updated for Paper Compliance
+    "lr": 5e-6,
     "batch_size": 4,
     "grad_accum": 16,
     "r": 64,
@@ -46,9 +44,7 @@ TARGET_LIMIT = 80000
 DATA_SAVE_PATH = os.path.join(BASE_DIR, "processed_datasets")
 os.makedirs(DATA_SAVE_PATH, exist_ok=True)
 
-# ==========================================
-# 2. DATA PROCESSING FUNCTIONS
-# ==========================================
+# Data processing
 def clean_memory():
     gc.collect()
     torch.cuda.empty_cache()
@@ -146,9 +142,7 @@ def create_te():
     ]
     return stream_and_mix("Telugu", streams, TARGET_LIMIT)
 
-# ==========================================
-# 3. TRAINING & EVALUATION FUNCTIONS
-# ==========================================
+# Training + eval functions
 def train_expert(dataset, output_dir, run_name):
     final_model_path = os.path.join(output_dir, "adapter_model.safetensors")
     if os.path.exists(final_model_path):
@@ -396,9 +390,7 @@ def generate_results_chart(json_path):
     print(f"\nSaved publication-ready chart to: {chart_path}")
     plt.show()
 
-# ==========================================
-# 4. MAIN EXECUTION SCRIPT
-# ==========================================
+# Main execution script
 if __name__ == "__main__":
     print("=" * 60)
     print("Beginning Reproduction on Qwen 2.5")
