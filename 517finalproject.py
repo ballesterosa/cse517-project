@@ -37,7 +37,7 @@ CONFIG = {
     "alpha": 16,
     "num_train_epochs": 1,
     "target_modules": [
-        "q_proj", "k_proj", "v_proj", "o_proj", 
+        "q_proj", "k_proj", "v_proj", "o_proj",
         "gate_proj", "up_proj", "down_proj",
     ],
 }
@@ -484,7 +484,7 @@ if __name__ == "__main__":
 
             with open(json_path, "w") as f:
                 json.dump(final_results, f, indent=4)
-            
+
             del model, base
             clean_memory()
 
