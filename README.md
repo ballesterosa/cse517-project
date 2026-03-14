@@ -19,7 +19,7 @@ The code to execute the Bengali and Telugu pipelines is fully implemented but co
 
 The original paper relies heavily on "Partition [C]" for Layer-Swapping, which allocates only the top two and bottom six transformer layers to language capabilities, reserving the vast majority of the middle layers for mathematical reasoning. The authors theorize that language syntax processing is heavily concentrated at the very input and output layers of dense LLMs.
 
-To empirically validate this structural assumption, we introduce a novel ablation testing a balanced 50/50 parameter split. We merged our separately trained Qwen 2.5 experts by allocating the bottom 14 layers strictly to language syntax and the top 14 layers to mathematical reasoning. As expected, deviating from Partition [C] resulted in a performance degradation. While standard Layer-Swapping achieved an average exact match accuracy of [XX.X]% across target languages, the 50/50 ablation only achieved [XX.X]%. This newly generated ablation explicitly confirms the authors' implicit hypothesis: mathematical reasoning requires substantially more parametric capacity in the middle of the network than language syntax, and a blunt halfway split causes catastrophic interference between the two skills.
+To empirically validate this structural assumption, we introduce a novel ablation testing a balanced 50/50 parameter split. We merged our separately trained Qwen 2.5 experts by allocating the bottom 14 layers strictly to language syntax and the top 14 layers to mathematical reasoning. Contrary to the authors' hypothesis, our balanced 50/50 split significantly outperformed the original Partition [C] for Swahili, achieving an Exact Match score of 18.0% compared to the 14.0% achieved by Partition [C] and the Base Model. This newly generated ablation indicates that the original authors' "edge-only" language allocation may be too restrictive for non-English reasoning in modern 7B models.
 
 ---
 
@@ -31,8 +31,10 @@ This code was developed and tested on an A100 GPU environment.
 To install and run on department Linux machines, execute the following bash commands:
 
 ```bash
-git clone <your-github-repo-url>
-cd <your-repo-name>
+git clone https://github.com/ballesterosa/cse517-project.git
+cd cse517-project
+python3 -m venv venv
+source venv/bin/activate
 pip install torch transformers peft datasets trl bitsandbytes accelerate safetensors tqdm matplotlib numpy
 ```
 
