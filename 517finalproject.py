@@ -62,7 +62,7 @@ def get_base_model():
         CONFIG["model_name"],
         quantization_config=bnb_config,
         device_map="auto",
-        torch_dtype=torch.bfloat16,
+        dtype=torch.bfloat16,
         trust_remote_code=True,
     )
 
@@ -122,7 +122,7 @@ def create_sw():
     streams = [
         load_dataset("CohereForAI/aya_collection_language_split", "swahili", split="train", streaming=True),
         load_dataset("lelapa/Inkuba-instruct", split="swahili_train", streaming=True),
-        load_dataset("bigscience/xP3mt", "sw", split="train", streaming=True),
+        load_dataset("bigscience/xP3mt", "sw", split="train", streaming=True, trust_remote_code=True),
     ]
     return stream_and_mix("Swahili", streams, TARGET_LIMIT)
 
@@ -137,7 +137,7 @@ def create_bn():
 def create_te():
     streams = [
         load_dataset("CohereForAI/aya_collection_language_split", "telugu", split="train", streaming=True),
-        load_dataset("bigscience/xP3mt", "te", split="train", streaming=True),
+        load_dataset("bigscience/xP3mt", "te", split="train", streaming=True, trust_remote_code=True),
         load_dataset("Telugu-LLM-Labs/telugu_alpaca_yahma_cleaned_filtered_romanized", split="train", streaming=True),
     ]
     return stream_and_mix("Telugu", streams, TARGET_LIMIT)

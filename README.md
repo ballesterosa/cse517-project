@@ -33,12 +33,14 @@ To install and run on department Linux machines, execute the following bash comm
 ```bash
 git clone https://github.com/ballesterosa/cse517-project.git
 cd cse517-project
-python3 -m venv venv
-source venv/bin/activate
-pip install torch transformers peft datasets trl bitsandbytes accelerate safetensors tqdm matplotlib numpy
+python3 -m venv .venv
+source .venv/bin/activate
+pip install torch transformers peft datasets<4.0.0 trl bitsandbytes accelerate safetensors tqdm matplotlib numpy
+# log into huggingface for the datasets/models (you'll need an account with a token)
+hf auth login
 ```
 
-You should use a virtual environment for the python packages for this project with `python3 -m venv venv` and `source .venv/bin/activate`.
+You should use a virtual environment for the python packages for this project with `python3 -m venv .venv` and `source .venv/bin/activate`.
 Then you can run the `pip install ...` command.
 
 ### 2. Data Download Instructions
