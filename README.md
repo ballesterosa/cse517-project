@@ -33,7 +33,7 @@ To install and run on department Linux machines, execute the following bash comm
 ```bash
 git clone https://github.com/ballesterosa/cse517-project.git
 cd cse517-project
-python3 -m venv .venv
+python3.12 -m venv .venv
 source .venv/bin/activate
 pip install torch transformers peft datasets<4.0.0 trl bitsandbytes accelerate safetensors tqdm matplotlib numpy
 # log into huggingface for the datasets/models (you'll need an account with a token)
